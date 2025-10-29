@@ -373,3 +373,16 @@ Para eliminar todo lo desplegado por los manifiestos del proyecto:
 kubectl -n ticketing delete -f infra/k8s/k8s-dev/
 kubectl delete namespace ticketing
 ```
+
+## Capturas de pantalla
+
+
+![Captura 1 — Lista de tickets](assets/cp1.png)
+
+![Captura 2 — Crear ticket](assets/cp2.png)
+
+![Captura 3 — Detalle de ticket / crear orden](assets/cp3.png)
+
+![Captura 4 — Página de órdenes](assets/cp4.png)
+
+![Captura 5 — Pagos / confirmación](assets/cp5.png)
