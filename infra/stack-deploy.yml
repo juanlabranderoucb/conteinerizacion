@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  mongo:
+    image: mongo:6
+    volumes:
+      - mongo-data:/data/db
+    deploy:
+      replicas: 1
+    networks:
+      - app-net
+
+  nats:
+    image: nats-streaming:0.24.6
+    deploy:
+      replicas: 1
+    networks:
+      - app-net
+
+  auth:
+    image: auth-service:v2
+    environment:
+      - MONGO_URI=mongodb://mongo/auth
+    deploy:
+      replicas: 2
+    networks:
+      - app-net
+
+  tickets:
+    image: tickets-service:v2
+    environment:
+      - MONGO_URI=mongodb://mongo/tickets
+    deploy:
+      replicas: 2
+    networks:
+      - app-net
+
+  orders:
+    image: orders-service:v2
+    environment:
+      - MONGO_URI=mongodb://mongo/orders
+    deploy:
+      replicas: 2
+    networks:
+      - app-net
+
+  payments:
+    image: payments-service:v2
+    environment:
+      - MONGO_URI=mongodb://mongo/payments
+    deploy:
+      replicas: 2
+    networks:
+      - app-net
+
+  client:
+    image: client-service:v2
+    ports:
+      - "80:80"
+    deploy:
+      replicas: 1
+    networks:
+      - app-net
+
+volumes:
+  mongo-data:
+
+networks:
+  app-net:
+    driver: overlay

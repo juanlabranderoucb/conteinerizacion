@@ -1,0 +1,194 @@
+version: '3.8'
+
+secrets:
+  jwt_secret:
+    external: true
+
+services:
+  mongo:
+    image: mongo:6
+    container_name: mongo
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - app-net
+    deploy:
+      placement:
+        constraints:
+          - node.role == manager
+      labels:
+        - "traefik.enable=false"
+
+  nats:
+    image: nats-streaming:0.24.6
+    container_name: nats
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    command: [
+      "--store", "MEMORY",
+      "--cluster_id", "ticketing",
+      "--http_port", "8222"
+    ]
+    networks:
+      - app-net
+    deploy:
+      replicas: 1
+      labels:
+        - "traefik.enable=false"
+
+  auth:
+    build: ../auth
+    image: jcharlylc/auth-service:v1
+    ports:
+      - "3001:3000"
+    environment:
+      - MONGO_URI=mongodb://mongo/auth
+    secrets:
+      - jwt_secret
+    depends_on:
+      - mongo
+    networks:
+      - app-net
+    deploy:
+      replicas: 3
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.auth.rule=PathPrefix(`/api/auth`) || PathPrefix(`/api/users`)"
+        - "traefik.http.routers.auth.entrypoints=web"
+        - "traefik.http.services.auth.loadbalancer.server.scheme=http"
+        - "traefik.http.services.auth.loadbalancer.server.port=3000"
+
+  tickets:
+    build: ../tickets
+    image: jcharlylc/tickets-service:v1
+    ports:
+      - "3002:3000"
+    environment:
+      - MONGO_URI=mongodb://mongo/tickets
+      - NATS_CLUSTER_ID=ticketing
+      - NATS_CLIENT_ID=tickets
+      - NATS_URL=nats://nats:4222
+    secrets:
+      - jwt_secret
+    depends_on:
+      - mongo
+      - nats
+    networks:
+      - app-net
+    deploy:
+      replicas: 2
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.tickets.rule=PathPrefix(`/api/tickets`)"
+        - "traefik.http.routers.tickets.entrypoints=web"
+        - "traefik.http.services.tickets.loadbalancer.server.scheme=http"
+        - "traefik.http.services.tickets.loadbalancer.server.port=3000"
+
+  orders:
+    build: ../orders
+    image: jcharlylc/orders-service:v1
+    ports:
+      - "3003:3000"
+    environment:
+      - MONGO_URI=mongodb://mongo/orders
+      - NATS_CLUSTER_ID=ticketing
+      - NATS_CLIENT_ID=orders
+      - NATS_URL=nats://nats:4222
+    secrets:
+      - jwt_secret
+    depends_on:
+      - mongo
+      - nats
+    networks:
+      - app-net
+    deploy:
+      replicas: 2
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.orders.rule=PathPrefix(`/api/orders`)"
+        - "traefik.http.routers.orders.entrypoints=web"
+        - "traefik.http.services.orders.loadbalancer.server.scheme=http"
+        - "traefik.http.services.orders.loadbalancer.server.port=3000"
+
+  payments:
+    build: ../payments
+    image: jcharlylc/payments-service:v1
+    ports:
+      - "3004:3000"
+    environment:
+      - MONGO_URI=mongodb://mongo/paymets
+      - NATS_CLUSTER_ID=ticketing
+      - NATS_CLIENT_ID=payments
+      - NATS_URL=nats://nats:4222
+    secrets:
+      - jwt_secret
+    depends_on:
+      - mongo
+      - nats
+    networks:
+      - app-net
+    deploy:
+      replicas: 2
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.payments.rule=PathPrefix(`/api/payments`)"
+        - "traefik.http.routers.payments.entrypoints=web"
+        - "traefik.http.services.payments.loadbalancer.server.scheme=http"
+        - "traefik.http.services.payments.loadbalancer.server.port=3000"
+
+  traefik:
+    image: traefik:v2.9
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command:
+      - --api.insecure=true
+      - --providers.docker
+      - --providers.docker.swarmmode
+      - --providers.docker.network=app-net
+      - --entrypoints.web.address=:80
+    networks:
+      - app-net
+    deploy:
+      placement:
+        constraints:
+          - node.role == manager
+      labels:
+        - "traefik.enable=false"
+
+  client:
+    build: ../client
+    image: jcharlylc/client-service:v1
+    ports:
+      - "3005:3000"
+    environment:
+      - NODE_OPTIONS=--openssl-legacy-provider
+      - BASE_API_URL=http://traefik
+    depends_on:
+      - auth
+      - tickets
+      - orders
+      - payments
+    networks:
+      - app-net
+    deploy:
+      replicas: 2
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.client.priority=1"
+        - "traefik.http.routers.client.rule=PathPrefix(`/`) && !PathPrefix(`/api`)"
+        - "traefik.http.routers.client.entrypoints=web"
+        - "traefik.http.services.client.loadbalancer.server.scheme=http"
+        - "traefik.http.services.client.loadbalancer.responseTimeout=90s"
+        - "traefik.http.services.client.loadbalancer.server.port=3000"
+
+volumes:
+  mongo-data:
+
+networks:
+  app-net:
+    driver: overlay
+    attachable: true
